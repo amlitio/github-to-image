@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub to Image</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .dark body {
+            background-color: #1a1a1a;
+        }
+        .loading-dots {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .loading-dots div {
+            width: 12px;
+            height: 12px;
+            background-color: #3b82f6;
+            border-radius: 50%;
+            margin: 0 4px;
+            animation: bounce 1s infinite ease-in-out;
+        }
+        .loading-dots div:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .loading-dots div:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 flex items-center justify-center min-h-screen p-4 transition-colors duration-300">
+
+    <div class="w-full max-w-2xl bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl flex flex-col items-center space-y-6 transition-colors duration-300">
+
+        <div class="text-center">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800 dark:text-gray-100">Visualize and Understand Code</h1>
+            <p class="mt-2 text-gray-600 dark:text-gray-400 max-w-md mx-auto">Get a visual and a summary of any public GitHub repository. The AI will analyze the project's code to understand its purpose and key technologies.</p>
+        </div>
+
+        <form id="repo-form" class="w-full space-y-4">
+            <div class="w-full">
+                <label for="repo-url" class="sr-only">GitHub Repository URL</label>
+                <input type="url" id="repo-url" name="repo-url" placeholder="e.g., https://github.com/reactjs/reactjs.org" required
+                       class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+            <button type="submit" id="generate-btn"
+                    class="w-full bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                Generate Visual & Summary
+            </button>
+        </form>
+
+        <div id="status-message" class="text-center text-sm font-medium text-gray-500 dark:text-gray-400 min-h-[1.5rem]"></div>
+        <div id="query-count" class="text-center text-sm font-medium text-gray-500 dark:text-gray-400"></div>
+
+        <div id="image-container" class="w-full flex justify-center items-center">
+            <img id="generated-image" src="" alt="Generated image will appear here"
+                 class="w-full max-w-full h-auto rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 transition-opacity duration-500 opacity-0"
+                 onload="this.style.opacity='1'" onerror="this.style.display='none';">
+        </div>
+
+        <!-- AI-Generated Summary Card -->
+        <div id="summary-card" class="hidden w-full bg-gray-100 dark:bg-gray-700 p-6 rounded-xl shadow-lg transition-all duration-300 transform scale-95 opacity-0">
+            <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">Project Summary</h3>
+            <p id="summary-text" class="text-gray-600 dark:text-gray-300 mb-4"></p>
+            <div id="tech-list" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <div id="error-box" class="hidden w-full p-4 bg-red-100 text-red-700 rounded-lg border border-red-200 dark:bg-red-800 dark:text-red-100 dark:border-red-700" role="alert">
+            <span id="error-message"></span>
+        </div>
+
+    </div>
+
+    <!-- Free Trial/Signup Modal -->
+    <div id="modal-backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center z-50 transition-opacity duration-300">
+        <div id="modal-content" class="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl max-w-sm mx-4 text-center transition-transform duration-300 scale-95">
+            <h3 id="modal-title" class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4"></h3>
+            <p id="modal-text" class="text-gray-600 dark:text-gray-400 mb-6"></p>
+            <div id="modal-actions" class="flex flex-col space-y-4">
+                <button id="modal-action-btn" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300"></button>
+                <button id="close-modal-btn" class="w-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-300">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        document.addEventListener('DOMContentLoaded', async () => {
+            const form = document.getElementById('repo-form');
+            const urlInput = document.getElementById('repo-url');
+            const generateBtn = document.getElementById('generate-btn');
+            const statusMessage = document.getElementById('status-message');
+            const imageElement = document.getElementById('generated-image');
+            const errorBox = document.getElementById('error-box');
+            const errorMessageSpan = document.getElementById('error-message');
+            const modalBackdrop = document.getElementById('modal-backdrop');
+            const modalTitle = document.getElementById('modal-title');
+            const modalText = document.getElementById('modal-text');
+            const modalActionBtn = document.getElementById('modal-action-btn');
+            const closeModalBtn = document.getElementById('close-modal-btn');
+            const summaryCard = document.getElementById('summary-card');
+            const summaryText = document.getElementById('summary-text');
+            const techList = document.getElementById('tech-list');
+            const queryCountEl = document.getElementById('query-count');
+
+            let db, auth, userId;
+            let queryCount = 0;
+            const QUERY_LIMIT = 3;
+            let authReady = false;
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+            } catch (e) {
+                console.error("Firebase initialization error:", e);
+                showError("Firebase initialization failed. Please try again later.");
+                return;
+            }
+
+            const updateQueryCountUI = () => {
+                const remaining = QUERY_LIMIT - queryCount;
+                if (remaining > 0) {
+                    queryCountEl.textContent = `You have ${remaining} free queries remaining.`;
+                } else {
+                    queryCountEl.textContent = `You have used all ${QUERY_LIMIT} free queries.`;
+                }
+            };
+            
+            const showModal = (title, text, actionText, actionFn) => {
+                modalTitle.textContent = title;
+                modalText.textContent = text;
+                modalActionBtn.textContent = actionText;
+                modalActionBtn.onclick = actionFn;
+                modalBackdrop.classList.remove('hidden');
+                document.getElementById('modal-content').classList.add('scale-100');
+            };
+
+            const hideModal = () => {
+                modalBackdrop.classList.add('hidden');
+                document.getElementById('modal-content').classList.remove('scale-100');
+            };
+
+            closeModalBtn.addEventListener('click', hideModal);
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    console.log("User authenticated:", userId);
+                    try {
+                        const userDocRef = doc(db, `/artifacts/${appId}/users/${userId}/user_data/app_state`);
+                        const userDoc = await getDoc(userDocRef);
+                        if (userDoc.exists()) {
+                            queryCount = userDoc.data().query_count || 0;
+                        } else {
+                            await setDoc(userDocRef, { query_count: 0, created_at: new Date() });
+                            queryCount = 0;
+                        }
+                        updateQueryCountUI();
+                    } catch (e) {
+                        console.error("Firestore error:", e);
+                        showError("Failed to load user data. Please refresh.");
+                    }
+                } else {
+                    if (!initialAuthToken) {
+                        try {
+                            await signInAnonymously(auth);
+                        } catch (e) {
+                            console.error("Anonymous sign-in failed:", e);
+                            showError("Failed to authenticate. Please try again.");
+                        }
+                    }
+                }
+                authReady = true;
+            });
+
+            const API_KEY = "";
+            const LLM_MODEL_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+            const IMAGE_MODEL_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${API_KEY}`;
+            const GITHUB_API_URL = 'https://api.github.com/repos/';
+
+            const showLoading = (msg) => {
+                statusMessage.innerHTML = `<div class="loading-dots"><div></div><div></div><div></div></div><span class="mt-2 text-sm">${msg}</span>`;
+                generateBtn.disabled = true;
+                generateBtn.textContent = 'Generating...';
+                imageElement.style.opacity = '0';
+                imageElement.style.display = 'none';
+                summaryCard.classList.add('hidden', 'opacity-0', 'scale-95');
+                errorBox.classList.add('hidden');
+            };
+
+            const hideLoading = () => {
+                updateQueryCountUI();
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate Visual & Summary';
+            };
+
+            const showError = (message) => {
+                errorMessageSpan.textContent = message;
+                errorBox.classList.remove('hidden');
+                hideLoading();
+            };
+
+            const delay = ms => new Promise(res => setTimeout(res, ms));
+
+            const fetchWithRetry = async (url, options, retries = 3) => {
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(url, options);
+                        if (response.status === 429) {
+                            console.warn(`Rate limit exceeded. Retrying in ${2 ** i}s...`);
+                            await delay(2 ** i * 1000);
+                            continue;
+                        }
+                        return response;
+                    } catch (err) {
+                        if (i < retries - 1) {
+                            console.warn(`Fetch failed, retrying in ${2 ** i}s...`, err);
+                            await delay(2 ** i * 1000);
+                        } else {
+                            throw err;
+                        }
+                    }
+                }
+            };
+
+            const getFileContent = async (owner, repoName, filePath) => {
+                const response = await fetchWithRetry(`${GITHUB_API_URL}${owner}/${repoName}/contents/${filePath}`, {
+                    headers: { 'Accept': 'application/vnd.github.v3.raw' }
+                });
+                if (response.ok) {
+                    return await response.text();
+                }
+                return null;
+            };
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                if (!authReady) {
+                    showError("Authentication is not ready. Please wait a moment and try again.");
+                    return;
+                }
+
+                if (queryCount >= QUERY_LIMIT) {
+                    showModal("Trial Ended", `You have used your ${QUERY_LIMIT} free queries. To continue creating, please sign up.`, "Sign Up", async () => {
+                         try {
+                            const userDocRef = doc(db, `/artifacts/${appId}/users/${userId}/user_data/app_state`);
+                            await setDoc(userDocRef, { query_count: 0 }, { merge: true }); // Reset for demo purposes
+                            queryCount = 0;
+                            updateQueryCountUI();
+                            hideModal();
+                            alert("Thank you for signing up! Your account is now active. You can continue using the app.");
+                        } catch (e) {
+                            console.error("Failed to sign up and reset trial:", e);
+                            alert("Failed to sign up. Please try again.");
+                        }
+                    });
+                    return;
+                }
+
+                showLoading('Fetching repository info...');
+
+                const url = urlInput.value.trim();
+                const match = url.match(/https?:\/\/github\.com\/([^\/]+)\/([^\/]+)/);
+                
+                if (!match) {
+                    showError("Please enter a valid GitHub repository URL.");
+                    return;
+                }
+                
+                const owner = match[1];
+                const repoName = match[2].replace(/\.git$/, '');
+
+                let summary = 'A project that has not yet been summarized.';
+                let technologies = ['Unknown'];
+                let imagePrompt = `A digital illustration of a computer with abstract code flowing out of it.`;
+
+                try {
+                    showLoading('Step 1/3: Analyzing project...');
+                    const repoResponse = await fetchWithRetry(`${GITHUB_API_URL}${owner}/${repoName}`);
+                    if (!repoResponse.ok) {
+                        if (repoResponse.status === 404) {
+                            showError("Repository not found. Please check the URL.");
+                        } else {
+                            throw new Error(`GitHub API error: ${repoResponse.statusText}`);
+                        }
+                        return;
+                    }
+                    const repoData = await repoResponse.json();
+                    let promptText = repoData.description || `A software project named ${repoName}.`;
+
+                    const readmeResponse = await fetchWithRetry(`${GITHUB_API_URL}${owner}/${repoName}/readme`, {
+                        headers: { 'Accept': 'application/vnd.github.v3.raw' }
+                    });
+                    if (readmeResponse.ok) {
+                        const readmeText = await readmeResponse.text();
+                        promptText += `\n\nREADME.md content:\n${readmeText.split('\n').slice(0, 10).join('\n')}`;
+                    } else {
+                        console.warn('README not found, using only repository description.');
+                    }
+                    
+                    const fileListResponse = await fetchWithRetry(`${GITHUB_API_URL}${owner}/${repoName}/contents/`);
+                    if (fileListResponse.ok) {
+                        const files = await fileListResponse.json();
+                        const keyFiles = [
+                            'package.json', 'requirements.txt', 'Gemfile', 'pom.xml',
+                            'index.js', 'app.js', 'main.py', 'index.html', 'main.cpp', 'main.go', 'main.rs', 'main.java'
+                        ];
+
+                        for (const file of files) {
+                            if (file.type === 'file' && keyFiles.includes(file.name)) {
+                                const fileContent = await getFileContent(owner, repoName, file.path);
+                                if (fileContent) {
+                                    promptText += `\n\nContent of ${file.name}:\n${fileContent.slice(0, 500)}`;
+                                }
+                            }
+                        }
+                    } else {
+                        console.warn('Could not fetch file list.');
+                    }
+                    
+                    showLoading('Step 2/3: Generating creative prompt and summary...');
+                    
+                    const llmPayload = {
+                        contents: [{
+                            parts: [{
+                                text: `Based on the following repository analysis, provide a brief summary of the project's purpose, a list of its key technologies, and a detailed image prompt. Format the output as follows:
+                                        
+                                        Summary: [Your summary here]
+                                        Technologies: [Technology 1, Technology 2, etc.]
+                                        Image Prompt: [Your detailed image prompt here]
+                                        
+                                        Repository analysis:\n\n${promptText}`
+                            }]
+                        }]
+                    };
+
+                    const llmResponse = await fetchWithRetry(LLM_MODEL_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(llmPayload)
+                    });
+
+                    if (!llmResponse.ok) {
+                        throw new Error(`AI summary generation failed: ${llmResponse.statusText}`);
+                    }
+                    
+                    const llmResult = await llmResponse.json();
+                    const textContent = llmResult?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    if (textContent) {
+                        const lines = textContent.split('\n');
+                        const summaryLine = lines.find(line => line.startsWith('Summary:'));
+                        const techLine = lines.find(line => line.startsWith('Technologies:'));
+                        const promptLine = lines.find(line => line.startsWith('Image Prompt:'));
+                        
+                        if (summaryLine) summary = summaryLine.substring('Summary:'.length).trim();
+                        if (techLine) technologies = techLine.substring('Technologies:'.length).trim().split(',').map(t => t.trim());
+                        if (promptLine) imagePrompt = promptLine.substring('Image Prompt:'.length).trim();
+                    } else {
+                        console.error("No text content received from the AI.");
+                        showError("Failed to get summary from AI. Please try again.");
+                    }
+                    
+                    // Display the summary
+                    summaryText.textContent = summary;
+                    techList.innerHTML = technologies.map(tech => 
+                        `<span class="bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200 px-3 py-1 rounded-full text-xs font-semibold">${tech}</span>`
+                    ).join('');
+                    summaryCard.classList.remove('hidden');
+                    setTimeout(() => {
+                        summaryCard.classList.remove('opacity-0', 'scale-95');
+                    }, 50);
+
+                    showLoading('Step 3/3: Creating the image...');
+
+                    const imagePayload = {
+                        instances: [{ prompt: imagePrompt }],
+                        parameters: { sampleCount: 1 }
+                    };
+
+                    const imageResponse = await fetchWithRetry(IMAGE_MODEL_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(imagePayload)
+                    });
+                    
+                    if (!imageResponse.ok) {
+                        const errorData = await imageResponse.json();
+                        throw new Error(errorData.error.message || `Image generation failed: ${imageResponse.statusText}`);
+                    }
+
+                    const imageResult = await imageResponse.json();
+                    const base64Data = imageResult?.predictions?.[0]?.bytesBase64Encoded;
+                    
+                    if (base64Data) {
+                        const imageUrl = `data:image/png;base64,${base64Data}`;
+                        imageElement.src = imageUrl;
+                        imageElement.alt = `Generated image for ${repoName}`;
+                        imageElement.style.display = 'block';
+                        
+                        if (authReady && userId) {
+                            try {
+                                const userDocRef = doc(db, `/artifacts/${appId}/users/${userId}/user_data/app_state`);
+                                await setDoc(userDocRef, { query_count: queryCount + 1 }, { merge: true });
+                                queryCount++;
+                                updateQueryCountUI();
+                            } catch (e) {
+                                console.error("Failed to update user query count:", e);
+                            }
+                        }
+                    } else {
+                        throw new Error("No image data received from the API.");
+                    }
+
+                } catch (err) {
+                    console.error("An error occurred:", err);
+                    showError(`Failed to generate content: ${err.message}.`);
+                } finally {
+                    hideLoading();
+                }
+            });
+            
+            if (initialAuthToken) {
+                signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                    console.error("Custom token sign-in failed, signing in anonymously:", e);
+                    signInAnonymously(auth).catch(e => {
+                        console.error("Anonymous sign-in failed:", e);
+                        showError("Failed to authenticate. Please check your browser's security settings.");
+                    });
+                });
+            } else {
+                signInAnonymously(auth).catch(e => {
+                    console.error("Anonymous sign-in failed:", e);
+                    showError("Failed to authenticate. Please check your browser's security settings.");
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>
+
+
