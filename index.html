@@ -258,34 +258,7 @@
                 return null;
             };
 
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-
-                if (!authReady) {
-                    showError("Authentication is not ready. Please wait a moment and try again.");
-                    return;
-                }
-
-                if (queryCount >= QUERY_LIMIT) {
-                    showModal("Trial Ended", `You have used your ${QUERY_LIMIT} free queries. To continue creating, please sign up.`, "Sign Up", async () => {
-                         try {
-                            const userDocRef = doc(db, `/artifacts/${appId}/users/${userId}/user_data/app_state`);
-                            await setDoc(userDocRef, { query_count: 0 }, { merge: true }); // Reset for demo purposes
-                            queryCount = 0;
-                            updateQueryCountUI();
-                            hideModal();
-                            alert("Thank you for signing up! Your account is now active. You can continue using the app.");
-                        } catch (e) {
-                            console.error("Failed to sign up and reset trial:", e);
-                            alert("Failed to sign up. Please try again.");
-                        }
-                    });
-                    return;
-                }
-
-                showLoading('Fetching repository info...');
-
-                const url = urlInput.value.trim();
+            const processRepo = async (url) => {
                 const match = url.match(/https?:\/\/github\.com\/([^\/]+)\/([^\/]+)/);
                 
                 if (!match) {
@@ -444,8 +417,56 @@
                 } finally {
                     hideLoading();
                 }
+            };
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                if (!authReady) {
+                    showError("Authentication is not ready. Please wait a moment and try again.");
+                    return;
+                }
+
+                if (queryCount >= QUERY_LIMIT) {
+                    showModal("Trial Ended", `You have used your ${QUERY_LIMIT} free queries. To continue creating, please sign up.`, "Sign Up", async () => {
+                         try {
+                            const userDocRef = doc(db, `/artifacts/${appId}/users/${userId}/user_data/app_state`);
+                            await setDoc(userDocRef, { query_count: 0 }, { merge: true }); // Reset for demo purposes
+                            queryCount = 0;
+                            updateQueryCountUI();
+                            hideModal();
+                            alert("Thank you for signing up! Your account is now active. You can continue using the app.");
+                        } catch (e) {
+                            console.error("Failed to sign up and reset trial:", e);
+                            alert("Failed to sign up. Please try again.");
+                        }
+                    });
+                    return;
+                }
+
+                const url = urlInput.value.trim();
+                if (url) {
+                    processRepo(url);
+                } else {
+                    showError("Please enter a valid GitHub repository URL.");
+                }
             });
             
+            // New logic to handle URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const repoUrlParam = urlParams.get('repo-url');
+            if (repoUrlParam) {
+                const decodedUrl = decodeURIComponent(repoUrlParam);
+                urlInput.value = decodedUrl;
+                // Defer processing until auth is ready
+                const processOnAuth = setInterval(() => {
+                    if (authReady) {
+                        clearInterval(processOnAuth);
+                        processRepo(decodedUrl);
+                    }
+                }, 100);
+            }
+
             if (initialAuthToken) {
                 signInWithCustomToken(auth, initialAuthToken).catch(e => {
                     console.error("Custom token sign-in failed, signing in anonymously:", e);
