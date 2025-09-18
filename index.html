@@ -100,10 +100,15 @@
         </div>
     </div>
 
+    <div class="text-center mt-4">
+        <a href="tests.html" class="text-sm text-gray-500 dark:text-gray-400 hover:underline">View Tests</a>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { parseGithubUrl } from './js/utils.js';
         
         document.addEventListener('DOMContentLoaded', async () => {
             const form = document.getElementById('repo-form');
@@ -259,15 +264,12 @@
             };
 
             const processRepo = async (url) => {
-                const match = url.match(/https?:\/\/github\.com\/([^\/]+)\/([^\/]+)/);
-                
-                if (!match) {
+                const repoDetails = parseGithubUrl(url);
+                if (!repoDetails) {
                     showError("Please enter a valid GitHub repository URL.");
                     return;
                 }
-                
-                const owner = match[1];
-                const repoName = match[2].replace(/\.git$/, '');
+                const { owner, repoName } = repoDetails;
 
                 let summary = 'A project that has not yet been summarized.';
                 let technologies = ['Unknown'];

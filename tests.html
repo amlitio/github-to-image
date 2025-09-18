@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Application Tests</title>
+</head>
+<body>
+    <h1>Application Tests</h1>
+    <div id="results"></div>
+    <script type="module">
+        import { parseGithubUrl } from './js/utils.js';
+
+        const resultsDiv = document.getElementById('results');
+        const tests = [];
+
+        function test(name, fn) {
+            tests.push({ name, fn });
+        }
+
+        function runTests() {
+            tests.forEach(t => {
+                try {
+                    t.fn();
+                    resultsDiv.innerHTML += `<p style="color: green;">PASS: ${t.name}</p>`;
+                } catch (e) {
+                    resultsDiv.innerHTML += `<p style="color: red;">FAIL: ${t.name} - ${e.message}</p>`;
+                }
+            });
+        }
+
+        function assertEquals(actual, expected) {
+            if (actual !== expected) {
+                throw new Error(`Expected "${expected}" but got "${actual}"`);
+            }
+        }
+
+        // --- Test cases ---
+        test('Should parse a simple GitHub URL', () => {
+            const url = 'https://github.com/test-owner/test-repo';
+            const result = parseGithubUrl(url);
+            assertEquals(result.owner, 'test-owner');
+            assertEquals(result.repoName, 'test-repo');
+        });
+
+        test('Should parse a GitHub URL with a sub-path', () => {
+            const url = 'https://github.com/test-owner/test-repo/tree/main';
+            const result = parseGithubUrl(url);
+            assertEquals(result.owner, 'test-owner');
+            assertEquals(result.repoName, 'test-repo');
+        });
+
+        test('Should parse a GitHub URL with a .git suffix', () => {
+            const url = 'https://github.com/test-owner/test-repo.git';
+            const result = parseGithubUrl(url);
+            assertEquals(result.owner, 'test-owner');
+            assertEquals(result.repoName, 'test-repo');
+        });
+
+        test('Should return null for an invalid URL', () => {
+            const url = 'https://not-github.com/test-owner/test-repo';
+            const result = parseGithubUrl(url);
+            assertEquals(result, null);
+        });
+
+        test('Should return null for a URL with insufficient path parts', () => {
+            const url = 'https://github.com/test-owner';
+            const result = parseGithubUrl(url);
+            assertEquals(result, null);
+        });
+
+        // Run all defined tests
+        runTests();
+    </script>
+</body>
+</html>
